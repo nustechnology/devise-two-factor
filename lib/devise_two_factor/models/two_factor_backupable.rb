@@ -6,6 +6,8 @@ module Devise
     module TwoFactorBackupable
       extend ActiveSupport::Concern
 
+      CODE_SEPERATOR = '|||'
+
       def self.required_fields(klass)
         [:otp_backup_codes]
       end
@@ -24,7 +26,7 @@ module Devise
         end
 
         hashed_codes = codes.map { |code| Devise::Encryptor.digest(self.class, code) }
-        self.otp_backup_codes = hashed_codes
+        self.otp_backup_codes = hashed_codes.join(CODE_SEPERATOR)
 
         codes
       end
@@ -32,17 +34,26 @@ module Devise
       # Returns true and invalidates the given code
       # iff that code is a valid backup code.
       def invalidate_otp_backup_code!(code)
-        codes = self.otp_backup_codes || []
+        codes = self.get_backup_codes
 
         codes.each do |backup_code|
           next unless Devise::Encryptor.compare(self.class, backup_code, code)
 
-          codes.delete(backup_code)
-          self.otp_backup_codes = codes
-          return true
+          self.generate_otp_backup_codes!
+          return self.save(validate: false)
         end
 
         false
+      end
+
+      def current_backup_code
+        codes = self.generate_otp_backup_codes!
+        self.save(validate: false)
+        codes[0]
+      end
+
+      def get_backup_codes
+        self.otp_backup_codes ? self.otp_backup_codes.split(CODE_SEPERATOR) : []
       end
 
     protected
